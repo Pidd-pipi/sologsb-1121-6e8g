@@ -14,6 +14,19 @@ body {
   background: #fff1f0 !important;
 }
 
+/* 复查比对表：基准已变、待重算的行高亮 */
+.diff-row-stale > td {
+  background: #fffbe6 !important;
+}
+
+/* 离线合并：未裁定 / 已裁定冲突行 */
+.merge-conflict-row > td {
+  background: #fff7e6 !important;
+}
+.merge-resolved-row > td {
+  background: #f6ffed !important;
+}
+
 .app-content {
   padding: 16px 20px 40px;
 }

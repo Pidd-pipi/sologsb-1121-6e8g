@@ -69,6 +69,13 @@ export default function GrowthDiffTable({ diffs, emptyText = '暂无复查比对
       width: 160,
       render: (value: string) => (value ? <Tag color="red">{value}</Tag> : '—'),
     },
+    {
+      title: '比对状态',
+      dataIndex: 'stale',
+      width: 110,
+      render: (stale?: boolean) =>
+        stale ? <Tag color="warning">待重算</Tag> : <Tag color="green">有效</Tag>,
+    },
   ];
 
   return (
@@ -79,9 +86,9 @@ export default function GrowthDiffTable({ diffs, emptyText = '暂无复查比对
         columns={columns}
         dataSource={sorted}
         pagination={false}
-        scroll={{ x: 1200 }}
+        scroll={{ x: 1320 }}
         locale={{ emptyText }}
-        rowClassName={(row) => (isDiffAbnormal(row) ? 'diff-row-abnormal' : '')}
+        rowClassName={(row) => (row.stale ? 'diff-row-stale' : isDiffAbnormal(row) ? 'diff-row-abnormal' : '')}
       />
     </div>
   );

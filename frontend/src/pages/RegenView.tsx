@@ -140,6 +140,9 @@ export default function RegenView() {
           <Link to={`/plots/${plot.id}/trees`}>样木录入</Link>
         </Button>
         <Button type="link">
+          <Link to={`/plots/${plot.id}/merge`}>离线合并</Link>
+        </Button>
+        <Button type="link">
           <Link to={`/plots/${plot.id}/recheck`}>复查比对</Link>
         </Button>
         <Button type="link">

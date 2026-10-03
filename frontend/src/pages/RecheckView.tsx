@@ -4,9 +4,10 @@ import { Alert, Button, Card, Col, Row, Select, Space, Statistic, Tag, Typograph
 import { SaveOutlined } from '@ant-design/icons';
 import { usePlotStore } from '../stores/plotStore';
 import { useTreeStore } from '../stores/treeStore';
+import { useMergeStore } from '../stores/mergeStore';
 import GrowthDiffTable from '../components/common/GrowthDiffTable';
 import RoundTag from '../components/common/RoundTag';
-import { loadRecheckDiffs, saveRecheckDiffs } from '../utils/db';
+import { loadRecheckDiffs, replaceRecheckDiffs } from '../utils/db';
 import { newId } from '../utils/id';
 import { growthRate, isDiffAbnormal, type RecheckDiff } from '../types/recheck';
 import type { TreeRecord } from '../types/tree';
@@ -20,6 +21,7 @@ export default function RecheckView() {
   const { id = '' } = useParams();
   const plot = usePlotStore((s) => s.items.find((p) => p.id === id));
   const trees = useTreeStore((s) => s.items);
+  const mergePending = useMergeStore((s) => (id ? s.pending[id] !== undefined : false));
 
   const rounds = useMemo(
     () => Array.from(new Set(trees.filter((t) => t.plotId === id).map((t) => t.round))).sort((a, b) => a - b),
@@ -93,6 +95,7 @@ export default function RecheckView() {
         heightGrowth,
         statusChange,
         missingReason,
+        stale: false,
         generatedAt: Date.now(),
       };
     });
@@ -107,19 +110,18 @@ export default function RecheckView() {
       setError('请先生成比对表');
       return;
     }
-    await saveRecheckDiffs(diffs);
-    setToast(`逐株比对表已写入本地档案库（${diffs.length} 条）`);
+    await replaceRecheckDiffs(diffs);
+    setToast(`逐株比对表已写入本地档案库（${diffs.length} 条，旧结果已替换）`);
   };
 
-  const abnormal = diffs.filter(isDiffAbnormal).length;
-  const missing = diffs.filter((d) => !d.targetDbhCm).length;
+  // 待重算行（基准期次样木经离线合并发生变化）不参与生长量统计
+  const validDiffs = diffs.filter((d) => !d.stale);
+  const staleDiffs = diffs.filter((d) => d.stale);
+  const abnormal = validDiffs.filter(isDiffAbnormal).length;
+  const missing = validDiffs.filter((d) => !d.targetDbhCm).length;
+  const measured = validDiffs.filter((d) => d.targetDbhCm);
   const avgRate =
-    diffs.filter((d) => d.targetDbhCm).length === 0
-      ? 0
-      : r2(
-          diffs.filter((d) => d.targetDbhCm).reduce((s, d) => s + growthRate(d), 0) /
-            diffs.filter((d) => d.targetDbhCm).length,
-        );
+    measured.length === 0 ? 0 : r2(measured.reduce((s, d) => s + growthRate(d), 0) / measured.length);
 
   if (!plot) {
     return (
@@ -146,12 +148,35 @@ export default function RecheckView() {
           <Link to={`/plots/${plot.id}/regen`}>更新与灌木</Link>
         </Button>
         <Button type="link">
+          <Link to={`/plots/${plot.id}/merge`}>离线合并</Link>
+        </Button>
+        <Button type="link">
           <Link to={`/summary/${plot.id}`}>林分汇总</Link>
         </Button>
       </Space>
 
       {toast ? <Alert type="success" showIcon message={toast} closable onClose={() => setToast('')} /> : null}
       {error ? <Alert type="error" showIcon message={error} closable onClose={() => setError('')} /> : null}
+
+      {mergePending ? (
+        <Alert
+          type="info"
+          showIcon
+          message="该样地存在尚未确认的离线合并预演，确认前林分汇总页不显示旧生长量；下方已保存比对仅作参考。"
+        />
+      ) : null}
+      {staleDiffs.length > 0 ? (
+        <Alert
+          type="warning"
+          showIcon
+          message={`有 ${staleDiffs.length} 条逐株比对的基准样木已在离线合并后变化，已标记「待重算」且不计入下方生长量统计。`}
+          action={
+            <Button size="small" type="primary" onClick={generate}>
+              按当前样木重新生成
+            </Button>
+          }
+        />
+      ) : null}
 
       <Card size="small">
         <Space wrap size={10}>
@@ -188,12 +213,16 @@ export default function RecheckView() {
       <Row gutter={12}>
         <Col span={6}>
           <Card size="small">
-            <Statistic title="比对数" value={diffs.length} suffix="株" />
+            <Statistic
+              title={staleDiffs.length > 0 ? `有效比对 / 总数（待重算 ${staleDiffs.length}）` : '比对数'}
+              value={diffs.length === 0 ? validDiffs.length : `${validDiffs.length} / ${diffs.length}`}
+              suffix="株"
+            />
           </Card>
         </Col>
         <Col span={6}>
           <Card size="small">
-            <Statistic title="平均保留木生长率" value={avgRate} precision={2} suffix="%" />
+            <Statistic title="平均保留木生长率（有效）" value={avgRate} precision={2} suffix="%" />
           </Card>
         </Col>
         <Col span={6}>

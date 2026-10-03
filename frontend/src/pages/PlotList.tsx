@@ -210,6 +210,9 @@ export default function PlotList() {
                     <Button size="small" type="link" onClick={() => navigate(`/plots/${plot.id}/regen`)}>
                       更新与灌木
                     </Button>
+                    <Button size="small" type="link" onClick={() => navigate(`/plots/${plot.id}/merge`)}>
+                      离线合并
+                    </Button>
                     <Button size="small" type="link" onClick={() => navigate(`/plots/${plot.id}/recheck`)}>
                       复查比对
                     </Button>

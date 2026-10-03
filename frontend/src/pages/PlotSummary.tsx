@@ -18,10 +18,13 @@ import { CopyOutlined, DownloadOutlined } from '@ant-design/icons';
 import { usePlotStore } from '../stores/plotStore';
 import { useRegenStore } from '../stores/regenStore';
 import { useTreeStore } from '../stores/treeStore';
+import { useMergeStore } from '../stores/mergeStore';
 import { useTreeStats } from '../hooks/useTreeStats';
 import RoundTag from '../components/common/RoundTag';
 import PlotCard from '../components/common/PlotCard';
+import { loadRecheckDiffs } from '../utils/db';
 import { canopyFromCrown, formHeight, heightClassStats } from '../utils/forestCalc';
+import { growthRate, type RecheckDiff } from '../types/recheck';
 import type { TreeRecord } from '../types/tree';
 
 type Columns = NonNullable<TableProps<TreeRecord>['columns']>;
@@ -40,9 +43,16 @@ export default function PlotSummary() {
   const plot = usePlotStore((s) => s.items.find((p) => p.id === plotId));
   const trees = useTreeStore((s) => s.items);
   const regens = useRegenStore((s) => s.items);
+  const mergePending = useMergeStore((s) => (plotId ? s.pending[plotId] !== undefined : false));
   const stats = useTreeStats(plotId);
 
+  const [diffs, setDiffs] = useState<RecheckDiff[]>([]);
   const [toast, setToast] = useState('');
+
+  useEffect(() => {
+    if (!plotId) return;
+    void loadRecheckDiffs(plotId).then(setDiffs);
+  }, [plotId, trees, regens]);
 
   useEffect(() => {
     if (!toast) return;
@@ -54,6 +64,33 @@ export default function PlotSummary() {
     () => regens.filter((r) => r.plotId === plotId && r.round === (plot?.surveyRound ?? 1)),
     [regens, plotId, plot?.surveyRound],
   );
+
+  /**
+   * 最近一期逐株比对的生长量汇总。
+   * 合并预演确认前一律不展示旧生长量；确认后基准变化的比对已被置为待重算，同样不展示。
+   */
+  const growth = useMemo(() => {
+    if (mergePending || diffs.length === 0) return undefined;
+    const targetRound = Math.max(...diffs.map((d) => d.targetRound));
+    const valid = diffs.filter((d) => d.targetRound === targetRound && !d.stale);
+    if (valid.length === 0) return undefined;
+    const withBase = valid.filter((d) => d.baseDbhCm);
+    const avgDbhGrowth =
+      withBase.length === 0
+        ? 0
+        : Math.round((withBase.reduce((s, d) => s + d.dbhGrowth, 0) / withBase.length) * 100) / 100;
+    const avgHeightGrowth =
+      withBase.length === 0
+        ? 0
+        : Math.round((withBase.reduce((s, d) => s + d.heightGrowth, 0) / withBase.length) * 100) / 100;
+    const avgRate =
+      withBase.length === 0
+        ? 0
+        : Math.round((withBase.reduce((s, d) => s + growthRate(d), 0) / withBase.length) * 100) / 100;
+    return { baseRound: withBase[0]?.baseRound, targetRound, count: withBase.length, avgDbhGrowth, avgHeightGrowth, avgRate };
+  }, [diffs, mergePending]);
+
+  const staleGrowthCount = useMemo(() => diffs.filter((d) => d.stale).length, [diffs]);
 
   const speciesRows = useMemo(() => {
     const map = new Map<string, { species: string; count: number; dbh: number; height: number }>();
@@ -107,6 +144,15 @@ export default function PlotSummary() {
     lines.push(`郁闭度（录入）：${plot.canopyDensity}；按冠幅折算：${canopyFromCrown(stats.trees, plot)}`);
     lines.push(`更新苗密度：${stats.regenPerHa} 株/hm²；灌木密度：${stats.shrubPerHa} 株/hm²`);
     lines.push('');
+    if (mergePending) {
+      lines.push('生长量：存在尚未确认的离线合并预演，确认前不展示旧生长量；请完成合并后重新生成逐株比对。');
+    } else if (growth) {
+      lines.push(
+        `生长量（第 ${growth.baseRound} 期 → 第 ${growth.targetRound} 期，保留木 ${growth.count} 株）：` +
+          `平均胸径生长 ${growth.avgDbhGrowth} cm，平均树高生长 ${growth.avgHeightGrowth} m，平均生长率 ${growth.avgRate}%`,
+      );
+    }
+    lines.push('');
     lines.push('径阶分布：' + stats.diameterDist.map((d) => `${d.label}cm=${d.count}`).join('，'));
     lines.push('高度级株数：' + heightClassStats(plotRegens).map((h) => `${h.label}=${h.count}`).join('，'));
     lines.push('');
@@ -117,7 +163,7 @@ export default function PlotSummary() {
     lines.push('');
     lines.push(`导出时间：${new Date().toLocaleString('zh-CN')}`);
     return lines.join('\n');
-  }, [plot, stats, plotRegens, speciesRows]);
+  }, [plot, stats, plotRegens, speciesRows, growth, mergePending]);
 
   if (!plot) {
     return (
@@ -144,11 +190,37 @@ export default function PlotSummary() {
           <Link to={`/plots/${plot.id}/regen`}>更新与灌木</Link>
         </Button>
         <Button type="link">
+          <Link to={`/plots/${plot.id}/merge`}>离线合并</Link>
+        </Button>
+        <Button type="link">
           <Link to={`/plots/${plot.id}/recheck`}>复查比对</Link>
         </Button>
       </Space>
 
       {toast ? <Alert type="success" showIcon message={toast} closable onClose={() => setToast('')} /> : null}
+      {mergePending ? (
+        <Alert
+          type="info"
+          showIcon
+          message="该样地存在尚未确认的离线合并预演：林分因子按当前已录数据实时计算，但旧生长量已暂缓展示，确认合并后请重新生成逐株比对。"
+          action={
+            <Button size="small" type="primary">
+              <Link to={`/plots/${plot.id}/merge`}>回到合并预演</Link>
+            </Button>
+          }
+        />
+      ) : staleGrowthCount > 0 ? (
+        <Alert
+          type="warning"
+          showIcon
+          message={`有 ${staleGrowthCount} 条逐株比对因离线合并改变了基准样木而标记为「待重算」，其旧生长量不再计入本页汇总。`}
+          action={
+            <Button size="small" type="primary">
+              <Link to={`/plots/${plot.id}/recheck`}>前往重算比对</Link>
+            </Button>
+          }
+        />
+      ) : null}
 
       <Row gutter={12}>
         <Col span={8}>
@@ -199,6 +271,49 @@ export default function PlotSummary() {
           </Row>
         </Col>
       </Row>
+
+      <Card size="small" title="最近一期生长量（逐株比对）">
+        {mergePending ? (
+          <Alert
+            type="info"
+            showIcon
+            message="合并预演尚未确认，旧生长量暂缓显示"
+            description="请到「离线合并」页裁定冲突并确认（或取消预演）；确认后基准变化的比对会标记待重算。"
+          />
+        ) : growth ? (
+          <Row gutter={12}>
+            <Col span={6}>
+              <Statistic title="保留木株数" value={growth.count} suffix="株" />
+            </Col>
+            <Col span={6}>
+              <Statistic title="平均胸径生长量" value={growth.avgDbhGrowth} precision={2} suffix="cm" />
+            </Col>
+            <Col span={6}>
+              <Statistic title="平均树高生长量" value={growth.avgHeightGrowth} precision={2} suffix="m" />
+            </Col>
+            <Col span={6}>
+              <Statistic title="平均保留木生长率" value={growth.avgRate} precision={2} suffix="%" />
+            </Col>
+          </Row>
+        ) : (
+          <Alert
+            type="warning"
+            showIcon
+            message={
+              staleGrowthCount > 0
+                ? '保存的比对基准已变、标记为待重算，本页不显示旧生长量'
+                : '尚无有效的逐株比对结果'
+            }
+            description={
+              staleGrowthCount > 0 ? (
+                <Link to={`/plots/${plot.id}/recheck`}>前往复查比对页按当前样木重新生成</Link>
+              ) : (
+                <Link to={`/plots/${plot.id}/recheck`}>前往复查比对页生成并保存</Link>
+              )
+            }
+          />
+        )}
+      </Card>
 
       <Card size="small" title="径阶分布与高度级">
         <Space direction="vertical" size={6}>

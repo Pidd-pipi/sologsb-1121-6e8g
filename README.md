@@ -58,12 +58,12 @@ sologsb-1121/
         ├── main.tsx
         ├── index.css
         ├── router/index.tsx
-        ├── types/{plot,tree,regen,recheck}.ts
-        ├── stores/{plot,tree,regen}Store.ts
+        ├── types/{plot,tree,regen,recheck,merge}.ts
+        ├── stores/{plot,tree,regen,merge}Store.ts
         ├── components/common/{PlotCard,TreeTable,GrowthDiffTable,RoundTag}.tsx
         ├── hooks/{usePlotFilter,useTreeStats}.ts
-        ├── pages/{PlotList,TreeEntry,RegenView,RecheckView,PlotSummary}.tsx
-        └── utils/{db,forestCalc,id}.ts
+        ├── pages/{PlotList,TreeEntry,RegenView,MergeView,RecheckView,PlotSummary}.tsx
+        └── utils/{db,forestCalc,offlinePayload,id}.ts
 ```
 
 ## 页面与路由
@@ -73,6 +73,7 @@ sologsb-1121/
 | `/plots` | 样地台账：按地点/林型/复查期次/郁闭度区间筛选，显示面积、优势树种、已录样木数，可锁定往期 | Plot |
 | `/plots/:id/trees` | 样木录入与清单：径阶分组快速录入、行内改胸径、树种联想、胸径异常提示 | TreeRecord |
 | `/plots/:id/regen` | 更新苗与灌木样方记录，按高度级与株数分组合计 | RegenShrub |
+| `/plots/:id/merge` | 离线合并：导入另一组离线包，可撤销预演、冲突裁定、样方株数归并，确认后可撤销一次 | TreeRecord、RegenShrub、RecheckDiff、MergeBackup |
 | `/plots/:id/recheck` | 复查比对：逐株两期胸径/树高与生长量，标记缺失与状态变化，保存比对结果 | RecheckDiff、TreeRecord |
 | `/summary/:plotId` | 林分因子汇总：每公顷株数、平均胸径、断面积、郁闭度、更新密度，可导出调查记录文本 | Plot、TreeRecord、RegenShrub |
 
@@ -80,9 +81,10 @@ sologsb-1121/
 
 ## 数据存储说明
 
-- 数据库名 `gbforestplot`，当前结构版本 **v2**（`localStorage['gbforestplot:db-version']` 记录）。
-- 四张表：`plots`（样地）、`trees`（样木，按期次分行）、`regens`（更新苗与灌木样方）、`rechecks`（复查逐株比对）。
+- 数据库名 `gbforestplot`，当前结构版本 **v3**（`localStorage['gbforestplot:db-version']` 记录）。
+- 五张表：`plots`（样地）、`trees`（样木，按期次分行）、`regens`（更新苗与灌木样方）、`rechecks`（复查逐株比对，含 `stale` 待重算标记）、`mergeBackups`（最近一次离线合并的撤销快照）。
 - v1 → v2 迁移：为老样地补 `locked`、`surveyRound`，为老样木补 `round`、`measuredAt`，并新增索引。
+- v2 → v3 迁移：为 `rechecks` 增加 `stale` 索引，新增 `mergeBackups` 表（离线合并撤销）。
 - 容器无状态、不挂载命名卷；清空站点数据即回到初始示范数据。
 - 首次打开灌入 2 个示范样地、11 条样木（含第 1/2 两期，便于直接做复查比对）与 4 条样方记录。
 
@@ -90,6 +92,12 @@ sologsb-1121/
 
 - **径阶归组**：按「6/8/12/16/20/24/28/32+」cm 径阶自动归组，表格内联展示各径阶株数。
 - **胸径异常提示**：数值超出 0~200 cm 或与本树种同期均值偏离 >60% 时标黄并给出提示。
-- **复查比对**：任选上下两期生成逐株差值表，标记「本期未复测（疑似采伐或倒伏）」与「本期新增进界木」，生长率为负或缺失行高亮，并计算保留木生长率。
+- **复查比对**：任选上下两期生成逐株差值表，标记「本期未复测（疑似采伐或倒伏）」与「本期新增进界木」，生长率为负或缺失行高亮，并计算保留木生长率。保存时按样地 + 期次对整组替换，避免重复堆积。
+- **离线合并（两组同地离线记录）**：
+  - 每组可导出本机本期离线包 JSON；回到主机后在「离线合并」页导入另一组的包（按样地 id / 样地号识别）。
+  - 先做**可撤销预演**（不落库）：同一树号同期出现两份，胸径、树高或状态不同的进入**冲突清单**，由调查员逐条选定「本机 / 传入」；单边新增直接并入。
+  - 样方按**层位 + 种类 + 高度**（同期）归并株数：并入已有行累加株数，无则新增一行；重复行自动折叠。
+  - 确认后样木 / 样方落库，基准期次变化的逐株比对自动标记「**待重算**」；**确认前汇总页不显示旧生长量**。
+  - 合并单事务提交，写入撤销快照，**可撤销一次**（撤销后样木、样方与比对标记整体还原，快照即失效）。
 - **林分因子**：每公顷株数、平均胸径/树高、断面积与每公顷断面积、冠幅折算郁闭度、更新苗/灌木密度。
 - **导出**：复查比对结果写入本地档案库；林分汇总可复制或导出调查记录 txt。

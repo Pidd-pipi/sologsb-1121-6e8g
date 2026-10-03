@@ -24,6 +24,11 @@ export interface RecheckDiff {
   statusChange: string;
   /** 无法匹配时的缺失原因 */
   missingReason: string;
+  /**
+   * 待重算：基准期次样木经离线合并发生变化，
+   * 或样方并入改变了同一期株数；需重新生成比对，确认前不展示旧生长量。
+   */
+  stale?: boolean;
   generatedAt: number;
 }
 

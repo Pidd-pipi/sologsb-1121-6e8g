@@ -14,6 +14,11 @@ body {
   background: #fff1f0 !important;
 }
 
+/* 复查比对表：基准已变、待重算的行 */
+.diff-row-stale > td {
+  background: #fffbe6 !important;
+}
+
 .app-content {
   padding: 16px 20px 40px;
 }

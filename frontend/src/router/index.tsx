@@ -5,12 +5,14 @@ import { ExperimentOutlined } from '@ant-design/icons';
 import { usePlotStore } from '../stores/plotStore';
 import { useTreeStore } from '../stores/treeStore';
 import { useRegenStore } from '../stores/regenStore';
+import { useMergeStore } from '../stores/mergeStore';
 import { ensureSeedData, markDbVersion, readDbVersion } from '../utils/db';
 import PlotList from '../pages/PlotList';
 import TreeEntry from '../pages/TreeEntry';
 import RegenView from '../pages/RegenView';
 import RecheckView from '../pages/RecheckView';
 import PlotSummary from '../pages/PlotSummary';
+import OfflineMerge from '../pages/OfflineMerge';
 
 const { Header, Content } = Layout;
 
@@ -68,6 +70,7 @@ function Shell() {
           <Route path="/plots/:id/trees" element={<TreeEntry />} />
           <Route path="/plots/:id/regen" element={<RegenView />} />
           <Route path="/plots/:id/recheck" element={<RecheckView />} />
+          <Route path="/plots/:id/merge" element={<OfflineMerge />} />
           <Route path="/summary/:plotId" element={<PlotSummary />} />
           <Route path="*" element={<Navigate to="/plots" replace />} />
         </Routes>
@@ -82,19 +85,20 @@ export default function AppRouter() {
   const loadPlots = usePlotStore((s) => s.load);
   const loadTrees = useTreeStore((s) => s.load);
   const loadRegens = useRegenStore((s) => s.load);
+  const loadCheckpoints = useMergeStore((s) => s.load);
 
   useEffect(() => {
     let alive = true;
     (async () => {
       await ensureSeedData();
       markDbVersion();
-      await Promise.all([loadPlots(), loadTrees(), loadRegens()]);
+      await Promise.all([loadPlots(), loadTrees(), loadRegens(), loadCheckpoints()]);
       if (alive) setReady(true);
     })();
     return () => {
       alive = false;
     };
-  }, [loadPlots, loadTrees, loadRegens]);
+  }, [loadPlots, loadTrees, loadRegens, loadCheckpoints]);
 
   if (!ready) {
     return (

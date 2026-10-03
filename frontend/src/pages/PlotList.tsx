@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Alert,
+  Badge,
   Button,
   Card,
   Col,
@@ -18,10 +19,11 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { PlusOutlined, ReloadOutlined, MergeCellsOutlined } from '@ant-design/icons';
 import { usePlotStore } from '../stores/plotStore';
 import { useTreeStore } from '../stores/treeStore';
 import { useRegenStore } from '../stores/regenStore';
+import { useMergeStore } from '../stores/mergeStore';
 import { usePlotFilter } from '../hooks/usePlotFilter';
 import PlotCard from '../components/common/PlotCard';
 import { FOREST_TYPES, PLOT_SHAPES, type PlotDraft, type PlotShape } from '../types/plot';
@@ -53,6 +55,7 @@ export default function PlotList() {
   const toggleLock = usePlotStore((s) => s.toggleLock);
   const trees = useTreeStore((s) => s.items);
   const regens = useRegenStore((s) => s.items);
+  const checkpointPlotIds = useMergeStore((s) => s.items.map((c) => c.plotId));
   const { filters, patch, reset, result, options } = usePlotFilter();
 
   const [open, setOpen] = useState(false);
@@ -213,6 +216,11 @@ export default function PlotList() {
                     <Button size="small" type="link" onClick={() => navigate(`/plots/${plot.id}/recheck`)}>
                       复查比对
                     </Button>
+                    <Badge dot={checkpointPlotIds.includes(plot.id)} color="#d48806">
+                      <Button size="small" type="link" onClick={() => navigate(`/plots/${plot.id}/merge`)}>
+                        <MergeCellsOutlined /> 离线合并
+                      </Button>
+                    </Badge>
                     <Button size="small" type="link" onClick={() => navigate(`/summary/${plot.id}`)}>
                       林分汇总
                     </Button>

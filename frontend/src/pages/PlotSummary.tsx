@@ -19,6 +19,7 @@ import { usePlotStore } from '../stores/plotStore';
 import { useRegenStore } from '../stores/regenStore';
 import { useTreeStore } from '../stores/treeStore';
 import { useTreeStats } from '../hooks/useTreeStats';
+import { loadRecheckDiffs } from '../utils/db';
 import RoundTag from '../components/common/RoundTag';
 import PlotCard from '../components/common/PlotCard';
 import { canopyFromCrown, formHeight, heightClassStats } from '../utils/forestCalc';
@@ -43,6 +44,18 @@ export default function PlotSummary() {
   const stats = useTreeStats(plotId);
 
   const [toast, setToast] = useState('');
+  const [staleCount, setStaleCount] = useState(0);
+
+  useEffect(() => {
+    if (!plotId) return;
+    let alive = true;
+    void loadRecheckDiffs(plotId).then((rows) => {
+      if (alive) setStaleCount(rows.filter((r) => r.stale).length);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [plotId, trees, regens]);
 
   useEffect(() => {
     if (!toast) return;
@@ -146,9 +159,28 @@ export default function PlotSummary() {
         <Button type="link">
           <Link to={`/plots/${plot.id}/recheck`}>复查比对</Link>
         </Button>
+        <Button type="link">
+          <Link to={`/plots/${plot.id}/merge`}>离线合并</Link>
+        </Button>
       </Space>
 
       {toast ? <Alert type="success" showIcon message={toast} closable onClose={() => setToast('')} /> : null}
+
+      {staleCount > 0 ? (
+        <Alert
+          type="warning"
+          showIcon
+          message={`离线合并已并入样木/样方，有 ${staleCount} 条旧逐株比对基准已变、标记为待重算`}
+          description={
+            <Space>
+              <span>重算完成前，本页与复查比对页均不显示旧生长量；林分密度、断面积等已按合并后最新数据即时计算。</span>
+              <Button size="small" type="link">
+                <Link to={`/plots/${plot.id}/recheck`}>前往复查比对重算</Link>
+              </Button>
+            </Space>
+          }
+        />
+      ) : null}
 
       <Row gutter={12}>
         <Col span={8}>

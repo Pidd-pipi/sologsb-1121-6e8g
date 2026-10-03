@@ -145,6 +145,9 @@ export default function RegenView() {
         <Button type="link">
           <Link to={`/summary/${plot.id}`}>林分汇总</Link>
         </Button>
+        <Button type="link">
+          <Link to={`/plots/${plot.id}/merge`}>离线合并</Link>
+        </Button>
       </Space>
 
       {toast ? <Alert type="success" showIcon message={toast} closable onClose={() => setToast('')} /> : null}

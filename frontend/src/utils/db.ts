@@ -3,10 +3,12 @@ import type { Plot } from '../types/plot';
 import type { TreeRecord } from '../types/tree';
 import type { RegenShrub } from '../types/regen';
 import type { RecheckDiff } from '../types/recheck';
+import type { CheckpointMeta, MergeCheckpoint } from '../types/merge';
+import { checkpointMeta } from '../types/merge';
 import { newId } from './id';
 
 export const DB_NAME = 'gbforestplot';
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 export const LS_VERSION_KEY = 'gbforestplot:db-version';
 
 class ForestPlotDB extends Dexie {
@@ -14,6 +16,7 @@ class ForestPlotDB extends Dexie {
   trees!: Table<TreeRecord, string>;
   regens!: Table<RegenShrub, string>;
   rechecks!: Table<RecheckDiff, string>;
+  mergeCheckpoints!: Table<MergeCheckpoint, string>;
 
   constructor() {
     super(DB_NAME);
@@ -46,6 +49,13 @@ class ForestPlotDB extends Dexie {
             if (row.measuredAt === undefined) row.measuredAt = Date.now();
           });
       });
+    this.version(3).stores({
+      plots: 'id, plotNo, locality, forestType, surveyRound, locked, createdAt',
+      trees: 'id, plotId, treeNo, species, round, status, measuredAt',
+      regens: 'id, plotId, layer, species, round, heightCm',
+      rechecks: 'id, plotId, baseRound, targetRound, treeNo, generatedAt, stale',
+      mergeCheckpoints: 'id, plotId, createdAt',
+    });
   }
 }
 
@@ -75,6 +85,23 @@ export async function saveRecheckDiffs(diffs: RecheckDiff[]): Promise<void> {
 export async function loadRecheckDiffs(plotId: string): Promise<RecheckDiff[]> {
   const rows = await db.rechecks.where('plotId').equals(plotId).toArray();
   return rows.sort((a, b) => a.treeNo.localeCompare(b.treeNo));
+}
+
+/** 读取某样地最近一次合并撤销快照（同一样地只保留一条，即只可撤销最近一次） */
+export async function loadLatestCheckpoint(plotId: string): Promise<MergeCheckpoint | undefined> {
+  const rows = await db.mergeCheckpoints.where('plotId').equals(plotId).toArray();
+  return rows.sort((a, b) => b.createdAt - a.createdAt)[0];
+}
+
+export async function listCheckpoints(): Promise<CheckpointMeta[]> {
+  const rows = await db.mergeCheckpoints.toArray();
+  return rows.sort((a, b) => b.createdAt - a.createdAt).map(checkpointMeta);
+}
+
+/** 写入新快照前，清掉该样地的旧快照（只可撤销一次） */
+export async function clearCheckpoints(plotId: string): Promise<void> {
+  const old = await db.mergeCheckpoints.where('plotId').equals(plotId).primaryKeys();
+  if (old.length > 0) await db.mergeCheckpoints.bulkDelete(old);
 }
 
 /** 首次进入灌入示范样地与两期样木数据 */

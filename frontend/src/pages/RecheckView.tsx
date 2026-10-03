@@ -8,7 +8,7 @@ import GrowthDiffTable from '../components/common/GrowthDiffTable';
 import RoundTag from '../components/common/RoundTag';
 import { loadRecheckDiffs, saveRecheckDiffs } from '../utils/db';
 import { newId } from '../utils/id';
-import { growthRate, isDiffAbnormal, type RecheckDiff } from '../types/recheck';
+import { growthRate, type RecheckDiff } from '../types/recheck';
 import type { TreeRecord } from '../types/tree';
 
 function r2(value: number): number {
@@ -93,13 +93,16 @@ export default function RecheckView() {
         heightGrowth,
         statusChange,
         missingReason,
+        // 由当前最新样木重新生成 → 基准有效，清除待重算标记
+        stale: false,
+        staleReason: '',
         generatedAt: Date.now(),
       };
     });
 
     setDiffs(next);
     setError('');
-    setToast(`已生成第 ${baseRound} 期 → 第 ${targetRound} 期的逐株比对表，共 ${next.length} 条`);
+    setToast(`已按当前最新样木生成第 ${baseRound} 期 → 第 ${targetRound} 期的逐株比对表，共 ${next.length} 条`);
   };
 
   const save = async () => {
@@ -111,14 +114,15 @@ export default function RecheckView() {
     setToast(`逐株比对表已写入本地档案库（${diffs.length} 条）`);
   };
 
-  const abnormal = diffs.filter(isDiffAbnormal).length;
-  const missing = diffs.filter((d) => !d.targetDbhCm).length;
+  const staleRows = diffs.filter((d) => d.stale);
+  const activeDiffs = diffs.filter((d) => !d.stale);
+  const missing = activeDiffs.filter((d) => !d.targetDbhCm).length;
   const avgRate =
-    diffs.filter((d) => d.targetDbhCm).length === 0
+    activeDiffs.filter((d) => d.targetDbhCm).length === 0
       ? 0
       : r2(
-          diffs.filter((d) => d.targetDbhCm).reduce((s, d) => s + growthRate(d), 0) /
-            diffs.filter((d) => d.targetDbhCm).length,
+          activeDiffs.filter((d) => d.targetDbhCm).reduce((s, d) => s + growthRate(d), 0) /
+            activeDiffs.filter((d) => d.targetDbhCm).length,
         );
 
   if (!plot) {
@@ -148,10 +152,22 @@ export default function RecheckView() {
         <Button type="link">
           <Link to={`/summary/${plot.id}`}>林分汇总</Link>
         </Button>
+        <Button type="link">
+          <Link to={`/plots/${plot.id}/merge`}>离线合并</Link>
+        </Button>
       </Space>
 
       {toast ? <Alert type="success" showIcon message={toast} closable onClose={() => setToast('')} /> : null}
       {error ? <Alert type="error" showIcon message={error} closable onClose={() => setError('')} /> : null}
+
+      {staleRows.length > 0 ? (
+        <Alert
+          type="warning"
+          showIcon
+          message={`有 ${staleRows.length} 条逐株比对的基准或本期样木已在离线合并后变更，已标记为待重算`}
+          description="待重算行的胸径/树高生长量与生长率暂不显示，林分汇总页也不再引用旧生长量。选择期次后点击「生成逐株比对表」即可按合并后的最新样木重算并解除标记。"
+        />
+      ) : null}
 
       <Card size="small">
         <Space wrap size={10}>
@@ -188,7 +204,11 @@ export default function RecheckView() {
       <Row gutter={12}>
         <Col span={6}>
           <Card size="small">
-            <Statistic title="比对数" value={diffs.length} suffix="株" />
+            <Statistic
+              title="有效比对"
+              value={activeDiffs.length}
+              suffix={`/ ${diffs.length} 株`}
+            />
           </Card>
         </Col>
         <Col span={6}>
@@ -203,7 +223,12 @@ export default function RecheckView() {
         </Col>
         <Col span={6}>
           <Card size="small">
-            <Statistic title="异常标注" value={abnormal} suffix="条" />
+            <Statistic
+              title="待重算（基准已变）"
+              value={staleRows.length}
+              suffix="条"
+              valueStyle={staleRows.length > 0 ? { color: '#d48806' } : undefined}
+            />
           </Card>
         </Col>
       </Row>
